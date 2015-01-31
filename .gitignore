@@ -1,0 +1,12 @@
+Thumbs.db
+.DS_Store
+
+*.bak
+
+!.gitkeep
+
+.rbenv-version
+.rvmrc
+
+/new/chromium_strings_zh-CN.xtb
+/new/generated_resources_zh-CN.xtb
