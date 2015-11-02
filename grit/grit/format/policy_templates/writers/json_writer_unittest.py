@@ -24,6 +24,15 @@ TEMPLATE_HEADER="""\
 {
 """
 
+TEMPLATE_HEADER_WITH_VERSION="""\
+// chromium version: 39.0.0.0
+// Policy template for Linux.
+// Uncomment the policies you wish to activate and change their values to
+// something useful for your case. The provided values are for reference only
+// and do not provide meaningful defaults!
+{
+"""
+
 
 HEADER_DELIMETER="""\
   //-------------------------------------------------------------------------
@@ -55,8 +64,21 @@ class JsonWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '  "placeholders": [],'
         '  "messages": {},'
         '}')
-    output = self.GetOutput(grd, 'fr', {'_chromium': '1',}, 'json', 'en')
+    output = self.GetOutput(grd, 'fr', {'_chromium': '1'}, 'json', 'en')
     expected_output = TEMPLATE_HEADER + '}'
+    self.CompareOutputs(output, expected_output)
+
+  def testEmptyWithVersion(self):
+    # Test the handling of an empty policy list.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": [],'
+        '  "placeholders": [],'
+        '  "messages": {},'
+        '}')
+    output = self.GetOutput(
+        grd, 'fr', {'_chromium': '1', 'version':'39.0.0.0'}, 'json', 'en')
+    expected_output = TEMPLATE_HEADER_WITH_VERSION + '}'
     self.CompareOutputs(output, expected_output)
 
   def testMainPolicy(self):
@@ -79,6 +101,40 @@ class JsonWriterUnittest(writer_unittest_common.WriterUnittestCommon):
     output = self.GetOutput(grd, 'fr', {'_google_chrome' : '1'}, 'json', 'en')
     expected_output = (
         TEMPLATE_HEADER +
+        '  // Example Main Policy\n' +
+        HEADER_DELIMETER +
+        '  // Example Main Policy\n\n'
+        '  //"MainPolicy": true\n\n'
+        '}')
+    self.CompareOutputs(output, expected_output)
+
+  def testRecommendedOnlyPolicy(self):
+    # Tests a policy group with a single policy of type 'main'.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": ['
+        '    {'
+        '      "name": "MainPolicy",'
+        '      "type": "main",'
+        '      "caption": "Example Main Policy",'
+        '      "desc": "Example Main Policy",'
+        '      "features": {'
+        '        "can_be_recommended": True,'
+        '        "can_be_mandatory": False'
+        '      },'
+        '      "supported_on": ["chrome.linux:8-"],'
+        '      "example_value": True'
+        '    },'
+        '  ],'
+        '  "placeholders": [],'
+        '  "messages": {},'
+        '}')
+    output = self.GetOutput(grd, 'fr', {'_google_chrome' : '1'}, 'json', 'en')
+    expected_output = (
+        TEMPLATE_HEADER +
+        '  // Note: this policy is supported only in recommended mode.\n' +
+        '  // The JSON file should be placed in' +
+        ' /etc/opt/chrome/policies/recommended.\n' +
         '  // Example Main Policy\n' +
         HEADER_DELIMETER +
         '  // Example Main Policy\n\n'
@@ -231,21 +287,51 @@ class JsonWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '}')
     self.CompareOutputs(output, expected_output)
 
+  def testStringEnumListPolicy(self):
+    # Tests a policy group with a single policy of type 'string-enum-list'.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": ['
+        '    {'
+        '      "name": "ListPolicy",'
+        '      "type": "string-enum-list",'
+        '      "caption": "Example List",'
+        '      "desc": "Example List",'
+        '      "items": ['
+        '        {"name": "ProxyServerDisabled", "value": "one",'
+        '         "caption": ""},'
+        '        {"name": "ProxyServerAutoDetect", "value": "two",'
+        '         "caption": ""},'
+        '      ],'
+        '      "supported_on": ["chrome.linux:8-"],'
+        '      "example_value": ["one", "two"]'
+        '    },'
+        '  ],'
+        '  "placeholders": [],'
+        '  "messages": {},'
+        '}')
+    output = self.GetOutput(grd, 'fr', {'_chromium' : '1'}, 'json', 'en')
+    expected_output = (
+        TEMPLATE_HEADER +
+        '  // Example List\n' +
+        HEADER_DELIMETER +
+        '  // Example List\n\n'
+        '  //"ListPolicy": ["one", "two"]\n\n'
+        '}')
+    self.CompareOutputs(output, expected_output)
+
   def testDictionaryPolicy(self):
     # Tests a policy group with a single policy of type 'dict'.
     example = {
       'bool': True,
-      'int': 10,
-      'string': 'abc',
-      'list': [1, 2, 3],
       'dict': {
         'a': 1,
         'b': 2,
-      }
+      },
+      'int': 10,
+      'list': [1, 2, 3],
+      'string': 'abc',
     }
-    # Encode |value| here, to make sure the string encoded within the reg_writer
-    # and the expected value are the same.
-    value = str(example)
     grd = self.PrepareTest(
         '{'
         '  "policy_definitions": ['
@@ -255,7 +341,7 @@ class JsonWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '      "caption": "Example Dictionary Policy",'
         '      "desc": "Example Dictionary Policy",'
         '      "supported_on": ["chrome.linux:8-"],'
-        '      "example_value": ' + value +
+        '      "example_value": ' + str(example) +
         '    },'
         '  ],'
         '  "placeholders": [],'
@@ -267,7 +353,8 @@ class JsonWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '  // Example Dictionary Policy\n' +
         HEADER_DELIMETER +
         '  // Example Dictionary Policy\n\n'
-        '  //"DictionaryPolicy": ' + str(eval(value)) + '\n\n'
+        '  //"DictionaryPolicy": {"bool": true, "dict": {"a": 1, '
+        '"b": 2}, "int": 10, "list": [1, 2, 3], "string": "abc"}\n\n'
         '}')
     self.CompareOutputs(output, expected_output)
 

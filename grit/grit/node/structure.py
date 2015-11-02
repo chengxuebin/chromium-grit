@@ -93,6 +93,8 @@ class StructureNode(base.Node):
     if hasattr(self.GetRoot(), 'defines'):
       self.gatherer.SetDefines(self.GetRoot().defines)
     self.gatherer.SetAttributes(self.attrs)
+    if self.ExpandVariables():
+      self.gatherer.SetFilenameExpansionFunction(self._Substitute)
 
     # Parse local variables and instantiate the substituter.
     if self.attrs['variables']:
@@ -109,6 +111,10 @@ class StructureNode(base.Node):
                         is_skeleton=True)
       skel.SetGrdNode(self)  # TODO(benrg): Or child? Only used for ToRealPath
       skel.SetUberClique(self.UberClique())
+      if hasattr(self.GetRoot(), 'defines'):
+        skel.SetDefines(self.GetRoot().defines)
+      if self.ExpandVariables():
+        skel.SetFilenameExpansionFunction(self._Substitute)
       self.skeletons[child.attrs['expr']] = skel
 
   def MandatoryAttributes(self):
@@ -285,7 +291,10 @@ class StructureNode(base.Node):
         (not self.attrs['run_command'] or
          not self.RunCommandOnCurrentPlatform())):
       if return_if_not_generated:
-        return self.ToRealPath(self.GetInputPath())
+        input_path = self.GetInputPath()
+        if input_path is None:
+          return None
+        return self.ToRealPath(input_path)
       else:
         return None
 
@@ -325,6 +334,15 @@ class StructureNode(base.Node):
         assert result == 0, '"%s" failed.' % command
 
     return filename
+
+  def IsResourceMapSource(self):
+    return True
+
+  def GeneratesResourceMapEntry(self, output_all_resource_defines,
+                                is_active_descendant):
+    if output_all_resource_defines:
+      return True
+    return is_active_descendant
 
   @staticmethod
   def Construct(parent, name, type, file, encoding='cp1252'):

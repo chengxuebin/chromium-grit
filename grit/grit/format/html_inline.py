@@ -19,6 +19,14 @@ import mimetypes
 from grit import lazy_re
 from grit import util
 
+# There is a python bug that makes mimetypes crash if the Windows
+# registry contains non-Latin keys ( http://bugs.python.org/issue9291
+# ). Initing manually and blocking external mime-type databases will
+# prevent that bug and if we add svg manually, it will still give us
+# the data we need.
+mimetypes.init([])
+mimetypes.add_type('image/svg+xml', '.svg')
+
 DIST_DEFAULT = 'chromium'
 DIST_ENV_VAR = 'CHROMIUM_BUILD'
 DIST_SUBSTR = '%DISTRIBUTION%'
@@ -32,19 +40,18 @@ _END_IF_BLOCK = lazy_re.compile('\s*</if>')
 
 # Used by DoInline to replace various links with inline content.
 _STYLESHEET_RE = lazy_re.compile(
-    '<link rel="stylesheet"[^>]+?href="(?P<filename>[^"]*)".*?>',
-    re.MULTILINE)
+    '<link rel="stylesheet"[^>]+?href="(?P<filename>[^"]*)".*?>(\s*</link>)?',
+    re.DOTALL)
 _INCLUDE_RE = lazy_re.compile(
-    '<include[^>]+?src="(?P<filename>[^"\']*)".*>',
-    re.MULTILINE)
+    '<include[^>]+?src="(?P<filename>[^"\']*)".*?>(\s*</include>)?',
+    re.DOTALL)
 _SRC_RE = lazy_re.compile(
-    r'<(?!script)(?:[^>]+?\s)src=(?P<quote>")(?P<filename>[^"\']*)\1',
+    r'<(?!script)(?:[^>]+?\s)src=(?P<quote>")(?!\[\[|{{)(?P<filename>[^"\']*)\1',
     re.MULTILINE)
 _ICON_RE = lazy_re.compile(
     r'<link rel="icon"\s(?:[^>]+?\s)?'
     'href=(?P<quote>")(?P<filename>[^"\']*)\1',
     re.MULTILINE)
-
 
 
 def GetDistribution():
@@ -62,7 +69,8 @@ def GetDistribution():
 
 
 def SrcInlineAsDataURL(
-    src_match, base_path, distribution, inlined_files, names_only=False):
+    src_match, base_path, distribution, inlined_files, names_only=False,
+    filename_expansion_function=None):
   """regex replace function.
 
   Takes a regex match for src="filename", attempts to read the file
@@ -83,6 +91,8 @@ def SrcInlineAsDataURL(
     string
   """
   filename = src_match.group('filename')
+  if filename_expansion_function:
+    filename = filename_expansion_function(filename)
   quote = src_match.group('quote')
 
   if filename.find(':') != -1:
@@ -96,7 +106,10 @@ def SrcInlineAsDataURL(
   if names_only:
     return ""
 
-  mimetype = mimetypes.guess_type(filename)[0] or 'text/plain'
+  mimetype = mimetypes.guess_type(filename)[0]
+  if mimetype is None:
+    raise Exception('%s is of an an unknown type and '
+                    'cannot be stored in a data url.' % filename)
   inline_data = base64.standard_b64encode(util.ReadFile(filepath, util.BINARY))
 
   prefix = src_match.string[src_match.start():src_match.start('filename')]
@@ -116,7 +129,7 @@ class InlinedData:
 
 def DoInline(
     input_filename, grd_node, allow_external_script=False, names_only=False,
-    rewrite_function=None):
+    rewrite_function=None, filename_expansion_function=None):
   """Helper function that inlines the resources in a specified file.
 
   Reads input_filename, finds all the src attributes and attempts to
@@ -129,10 +142,14 @@ def DoInline(
     names_only: |nil| will be returned for the inlined contents (faster).
     rewrite_function: function(filepath, text, distribution) which will be
         called to rewrite html content before inlining images.
+    filename_expansion_function: function(filename) which will be called to
+        rewrite filenames before attempting to read them.
   Returns:
     a tuple of the inlined data as a string and the set of filenames
     of all the inlined files
   """
+  if filename_expansion_function:
+    input_filename = filename_expansion_function(input_filename)
   input_filepath = os.path.dirname(input_filename)
   distribution = GetDistribution()
 
@@ -143,7 +160,8 @@ def DoInline(
                  inlined_files=inlined_files):
     """Helper function to provide SrcInlineAsDataURL with the base file path"""
     return SrcInlineAsDataURL(
-        src_match, filepath, distribution, inlined_files, names_only=names_only)
+        src_match, filepath, distribution, inlined_files, names_only=names_only,
+        filename_expansion_function=filename_expansion_function)
 
   def GetFilepath(src_match, base_path = input_filepath):
     filename = src_match.group('filename')
@@ -153,6 +171,8 @@ def DoInline(
       return None
 
     filename = filename.replace('%DISTRIBUTION%', distribution)
+    if filename_expansion_function:
+      filename = filename_expansion_function(filename)
     return os.path.normpath(os.path.join(base_path, filename))
 
   def IsConditionSatisfied(src_match):
@@ -164,6 +184,8 @@ def DoInline(
     while True:
       begin_if = _BEGIN_IF_BLOCK.search(str)
       if begin_if is None:
+        if _END_IF_BLOCK.search(str) is not None:
+          raise Exception('Unmatched </if>')
         return str
 
       condition_satisfied = IsConditionSatisfied(begin_if)
@@ -204,12 +226,16 @@ def DoInline(
     inlined_files.add(filepath)
 
     if names_only:
-      inlined_files.update(GetResourceFilenames(filepath,
-                                                allow_external_script,
-                                                rewrite_function))
+      inlined_files.update(GetResourceFilenames(
+          filepath,
+          allow_external_script,
+          rewrite_function,
+          filename_expansion_function=filename_expansion_function))
       return ""
 
-    return pattern % InlineToString(filepath, grd_node, allow_external_script)
+    return pattern % InlineToString(
+        filepath, grd_node, allow_external_script,
+        filename_expansion_function=filename_expansion_function)
 
   def InlineIncludeFiles(src_match):
     """Helper function to directly inline generic external files (without
@@ -328,7 +354,7 @@ def DoInline(
 
 
 def InlineToString(input_filename, grd_node, allow_external_script=False,
-                   rewrite_function=None):
+                   rewrite_function=None, filename_expansion_function=None):
   """Inlines the resources in a specified file and returns it as a string.
 
   Args:
@@ -338,10 +364,12 @@ def InlineToString(input_filename, grd_node, allow_external_script=False,
     the inlined data as a string
   """
   try:
-    return DoInline(input_filename,
-                    grd_node,
-                    allow_external_script=allow_external_script,
-                    rewrite_function=rewrite_function).inlined_data
+    return DoInline(
+        input_filename,
+        grd_node,
+        allow_external_script=allow_external_script,
+        rewrite_function=rewrite_function,
+        filename_expansion_function=filename_expansion_function).inlined_data
   except IOError, e:
     raise Exception("Failed to open %s while trying to flatten %s. (%s)" %
                     (e.filename, input_filename, e.strerror))
@@ -368,14 +396,17 @@ def InlineToFile(input_filename, output_filename, grd_node):
 
 def GetResourceFilenames(filename,
                          allow_external_script=False,
-                         rewrite_function=None):
+                         rewrite_function=None,
+                         filename_expansion_function=None):
   """For a grd file, returns a set of all the files that would be inline."""
   try:
-    return DoInline(filename,
-                    None,
-                    names_only=True,
-                    allow_external_script=allow_external_script,
-                    rewrite_function=rewrite_function).inlined_files
+    return DoInline(
+        filename,
+        None,
+        names_only=True,
+        allow_external_script=allow_external_script,
+        rewrite_function=rewrite_function,
+        filename_expansion_function=filename_expansion_function).inlined_files
   except IOError, e:
     raise Exception("Failed to open %s while trying to flatten %s. (%s)" %
                     (e.filename, filename, e.strerror))

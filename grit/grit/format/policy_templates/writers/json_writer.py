@@ -3,6 +3,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import json
+
 from textwrap import TextWrapper
 from grit.format.policy_templates.writers import template_writer
 
@@ -37,30 +39,25 @@ class JsonWriter(template_writer.TemplateWriter):
   def PreprocessPolicies(self, policy_list):
     return self.FlattenGroupsAndSortPolicies(policy_list)
 
+  def WriteComment(self, comment):
+    self._out.append('// ' + comment)
+
   def WritePolicy(self, policy):
-    example_value = policy['example_value']
-    if policy['type'] == 'string':
-      example_value_str = '"' + example_value + '"'
-    elif policy['type'] in ('int', 'int-enum', 'dict'):
-      example_value_str = str(example_value)
-    elif policy['type'] == 'list':
-      if example_value == []:
-        example_value_str = '[]'
-      else:
-        example_value_str = '["%s"]' % '", "'.join(example_value)
-    elif policy['type'] == 'main':
-      if example_value == True:
-        example_value_str = 'true'
-      else:
-        example_value_str = 'false'
-    elif policy['type'] == 'string-enum':
-      example_value_str = '"%s"' % example_value;
-    else:
-      raise Exception('unknown policy type %s:' % policy['type'])
+    if policy['type'] == 'external':
+      # This type can only be set through cloud policy.
+      return
+    example_value_str = json.dumps(policy['example_value'], sort_keys=True)
 
     # Add comma to the end of the previous line.
     if not self._first_written:
       self._out[-2] += ','
+
+    if not self.CanBeMandatory(policy) and self.CanBeRecommended(policy):
+      line = '  // Note: this policy is supported only in recommended mode.'
+      self._out.append(line)
+      line = '  // The JSON file should be placed in %srecommended.' % \
+             self.config['linux_policy_path']
+      self._out.append(line)
 
     line = '  // %s' % policy['caption']
     self._out.append(line)
@@ -75,6 +72,9 @@ class JsonWriter(template_writer.TemplateWriter):
     self._first_written = False
 
   def BeginTemplate(self):
+    if self._GetChromiumVersionString() is not None:
+      self.WriteComment(self.config['build'] + ''' version: ''' + \
+          self._GetChromiumVersionString())
     self._out.append(TEMPLATE_HEADER)
 
   def EndTemplate(self):

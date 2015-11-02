@@ -81,7 +81,7 @@ _LANGUAGE_CHARSET_PAIR = {
   'ar'          : '040104e8',
   'fi'          : '040b04e4',
   'ko'          : '041203b5',
-  'es'          : '040a04e4',
+  'es'          : '0c0a04e4',
   'bg'          : '040204e3',
   # No codepage for filipino, use unicode(1200).
   'fil'         : '046404e4',
@@ -98,7 +98,9 @@ _LANGUAGE_CHARSET_PAIR = {
   'zh-TW'       : '040403b6',
   'zh-HK'       : '0c0403b6',
   'el'          : '040804e5',
-  'no'          : '041404e4',
+  'no'          : '001404e4',
+  'nb'          : '041404e4',
+  'nn'          : '081404e4',
   'th'          : '041e036a',
   'he'          : '040d04e7',
   'iw'          : '040d04e7',
@@ -192,6 +194,8 @@ _LANGUAGE_DIRECTIVE_PAIR = {
   'zh-HK'       : 'LANG_CHINESE, SUBLANG_CHINESE_HONGKONG',
   'el'          : 'LANG_GREEK, SUBLANG_DEFAULT',
   'no'          : 'LANG_NORWEGIAN, SUBLANG_DEFAULT',
+  'nb'          : 'LANG_NORWEGIAN, SUBLANG_NORWEGIAN_BOKMAL',
+  'nn'          : 'LANG_NORWEGIAN, SUBLANG_NORWEGIAN_NYNORSK',
   'th'          : 'LANG_THAI, SUBLANG_DEFAULT',
   'he'          : 'LANG_HEBREW, SUBLANG_DEFAULT',
   'iw'          : 'LANG_HEBREW, SUBLANG_DEFAULT',
@@ -212,7 +216,7 @@ _LANGUAGE_DIRECTIVE_PAIR = {
   'vi'          : 'LANG_VIETNAMESE, SUBLANG_DEFAULT',
   'nl'          : 'LANG_DUTCH, SUBLANG_DEFAULT',
   'id'          : 'LANG_INDONESIAN, SUBLANG_DEFAULT',
-  'sr'          : 'LANG_SERBIAN, SUBLANG_SERBIAN_CYRILLIC',
+  'sr'          : 'LANG_SERBIAN, SUBLANG_SERBIAN_LATIN',
   'en-GB'       : 'LANG_ENGLISH, SUBLANG_ENGLISH_UK',
   'it'          : 'LANG_ITALIAN, SUBLANG_DEFAULT',
   'sk'          : 'LANG_SLOVAK, SUBLANG_DEFAULT',
@@ -428,7 +432,11 @@ def FormatInclude(item, lang, output_dir, type=None, process_html=False):
   #
   # The FileForLanguage() Function has the side effect of generating the file
   # if needed (e.g. if it is an HTML file include).
-  filename = os.path.abspath(item.FileForLanguage(lang, output_dir))
+  file_for_lang = item.FileForLanguage(lang, output_dir)
+  if file_for_lang is None:
+    return ''
+
+  filename = os.path.abspath(file_for_lang)
   if process_html:
     filename = item.Process(output_dir)
   elif filename_only:

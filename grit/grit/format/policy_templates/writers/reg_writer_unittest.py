@@ -48,6 +48,20 @@ class RegWriterUnittest(writer_unittest_common.WriterUnittestCommon):
     expected_output = 'Windows Registry Editor Version 5.00'
     self.CompareOutputs(output, expected_output)
 
+  def testEmptyVersion(self):
+    # Test the handling of an empty policy list.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": [],'
+        '  "placeholders": [],'
+        '  "messages": {}'
+        '}')
+    output = self.GetOutput(
+        grd, 'fr', {'_chromium': '1', 'version': '39.0.0.0' }, 'reg', 'en')
+    expected_output = ('Windows Registry Editor Version 5.00\r\n'
+                       '; chromium version: 39.0.0.0\r\n')
+    self.CompareOutputs(output, expected_output)
+
   def testMainPolicy(self):
     # Tests a policy group with a single policy of type 'main'.
     grd = self.PrepareTest(
@@ -72,6 +86,35 @@ class RegWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '',
         '[HKEY_LOCAL_MACHINE\\Software\\Policies\\Google\\Chrome]',
         '"MainPolicy"=dword:00000001',
+        '',
+        '[HKEY_LOCAL_MACHINE\\Software\\Policies\\Google\\Chrome\\Recommended]',
+        '"MainPolicy"=dword:00000001'])
+    self.CompareOutputs(output, expected_output)
+
+  def testRecommendedMainPolicy(self):
+    # Tests a policy group with a single policy of type 'main'.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": ['
+        '    {'
+        '      "name": "MainPolicy",'
+        '      "type": "main",'
+        '      "features": {'
+        '        "can_be_recommended": True,'
+        '        "can_be_mandatory": False '
+        '      },'
+        '      "caption": "",'
+        '      "desc": "",'
+        '      "supported_on": ["chrome.win:8-"],'
+        '      "example_value": True'
+        '    },'
+        '  ],'
+        '  "placeholders": [],'
+        '  "messages": {},'
+        '}')
+    output = self.GetOutput(grd, 'fr', {'_google_chrome' : '1'}, 'reg', 'en')
+    expected_output = self.NEWLINE.join([
+        'Windows Registry Editor Version 5.00',
         '',
         '[HKEY_LOCAL_MACHINE\\Software\\Policies\\Google\\Chrome\\Recommended]',
         '"MainPolicy"=dword:00000001'])
@@ -212,21 +255,49 @@ class RegWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '"1"="foo"',
         '"2"="bar"'])
 
+  def testStringEnumListPolicy(self):
+    # Tests a policy group with a single policy of type 'string-enum-list'.
+    grd = self.PrepareTest(
+        '{'
+        '  "policy_definitions": ['
+        '    {'
+        '      "name": "ListPolicy",'
+        '      "type": "string-enum-list",'
+        '      "caption": "",'
+        '      "desc": "",'
+        '      "items": ['
+        '        {"name": "ProxyServerDisabled", "value": "foo",'
+        '         "caption": ""},'
+        '        {"name": "ProxyServerAutoDetect", "value": "bar",'
+                '         "caption": ""},'
+        '      ],'
+        '      "supported_on": ["chrome.linux:8-"],'
+        '      "example_value": ["foo", "bar"]'
+        '    },'
+        '  ],'
+        '  "placeholders": [],'
+        '  "messages": {},'
+        '}')
+    output = self.GetOutput(grd, 'fr', {'_chromium' : '1'}, 'reg', 'en')
+    expected_output = self.NEWLINE.join([
+        'Windows Registry Editor Version 5.00',
+        '',
+        '[HKEY_LOCAL_MACHINE\\Software\\Policies\\Chromium\\ListPolicy]',
+        '"1"="foo"',
+        '"2"="bar"'])
+
   def testDictionaryPolicy(self):
     # Tests a policy group with a single policy of type 'dict'.
     example = {
       'bool': True,
-      'int': 10,
-      'string': 'abc',
-      'list': [1, 2, 3],
       'dict': {
         'a': 1,
         'b': 2,
-      }
+      },
+      'int': 10,
+      'list': [1, 2, 3],
+      'string': 'abc',
     }
-    # Encode |value| here, to make sure the string encoded within the reg_writer
-    # and the expected value are the same.
-    value = str(example)
     grd = self.PrepareTest(
         '{'
         '  "policy_definitions": ['
@@ -236,7 +307,7 @@ class RegWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         '      "caption": "",'
         '      "desc": "",'
         '      "supported_on": ["chrome.win:8-"],'
-        '      "example_value": ' + value +
+        '      "example_value": ' + str(example) +
         '    },'
         '  ],'
         '  "placeholders": [],'
@@ -247,7 +318,8 @@ class RegWriterUnittest(writer_unittest_common.WriterUnittestCommon):
         'Windows Registry Editor Version 5.00',
         '',
         '[HKEY_LOCAL_MACHINE\\Software\\Policies\\Chromium]',
-        '"DictionaryPolicy"="%s"' % str(eval(value))])
+        '"DictionaryPolicy"="{"bool": true, "dict": {"a": 1, '
+        '"b": 2}, "int": 10, "list": [1, 2, 3], "string": "abc"}"'])
     self.CompareOutputs(output, expected_output)
 
   def testNonSupportedPolicy(self):

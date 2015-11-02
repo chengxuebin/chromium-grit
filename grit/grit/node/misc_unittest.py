@@ -46,6 +46,66 @@ class GritNodeUnittest(unittest.TestCase):
     self.assertEqual({},
         id_dict.get('out/Release/obj/gen/devtools/devtools.grd', None))
 
+    src_dir, id_dict = misc._ReadFirstIdsFromFile(
+        test_resource_ids,
+        {
+          'SHARED_INTERMEDIATE_DIR': '/outside/src_dir',
+        })
+    self.assertEqual({}, id_dict.get('devtools.grd', None))
+
+  # Verifies that GetInputFiles() returns the correct list of files
+  # corresponding to ChromeScaledImage nodes when assets are missing.
+  def testGetInputFilesChromeScaledImage(self):
+    chrome_html_path = util.PathFromRoot('grit/testdata/chrome_html.html')
+    xml = '''<?xml version="1.0" encoding="utf-8"?>
+      <grit latest_public_release="0" current_release="1">
+        <outputs>
+          <output filename="default.pak" type="data_package" context="default_100_percent" />
+          <output filename="special.pak" type="data_package" context="special_100_percent" fallback_to_default_layout="false" />
+        </outputs>
+        <release seq="1">
+          <structures fallback_to_low_resolution="true">
+            <structure type="chrome_scaled_image" name="IDR_A" file="a.png" />
+            <structure type="chrome_scaled_image" name="IDR_B" file="b.png" />
+            <structure type="chrome_html" name="HTML_FILE1" file="%s" flattenhtml="true" />
+          </structures>
+        </release>
+      </grit>''' % chrome_html_path
+
+    grd = grd_reader.Parse(StringIO.StringIO(xml), util.PathFromRoot('grit/testdata'))
+    expected = ['chrome_html.html', 'default_100_percent/a.png',
+                'default_100_percent/b.png', 'included_sample.html',
+                'special_100_percent/a.png']
+    actual = [os.path.relpath(path, util.PathFromRoot('grit/testdata')) for path in grd.GetInputFiles()]
+    # Convert path separator for Windows paths.
+    actual = [path.replace('\\', '/') for path in actual]
+    self.assertEquals(expected, actual)
+
+  # Verifies that GetInputFiles() returns the correct list of files
+  # when files include other files.
+  def testGetInputFilesFromIncludes(self):
+    chrome_html_path = util.PathFromRoot('grit/testdata/chrome_html.html')
+    xml = '''<?xml version="1.0" encoding="utf-8"?>
+      <grit latest_public_release="0" current_release="1">
+        <outputs>
+          <output filename="default.pak" type="data_package" context="default_100_percent" />
+          <output filename="special.pak" type="data_package" context="special_100_percent" fallback_to_default_layout="false" />
+        </outputs>
+        <release seq="1">
+          <includes>
+            <include name="IDR_TESTDATA_CHROME_HTML" file="%s" flattenhtml="true"
+ allowexternalscript="true" type="BINDATA" />
+          </includes>
+        </release>
+      </grit>''' % chrome_html_path
+
+    grd = grd_reader.Parse(StringIO.StringIO(xml), util.PathFromRoot('grit/testdata'))
+    expected = ['chrome_html.html', 'included_sample.html']
+    actual = [os.path.relpath(path, util.PathFromRoot('grit/testdata')) for path in grd.GetInputFiles()]
+    # Convert path separator for Windows paths.
+    actual = [path.replace('\\', '/') for path in actual]
+    self.assertEquals(expected, actual)
+
 
 class IfNodeUnittest(unittest.TestCase):
   def testIffyness(self):

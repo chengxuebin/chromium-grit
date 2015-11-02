@@ -4,6 +4,7 @@
 # found in the LICENSE file.
 
 
+import json
 from xml.dom import minidom
 from grit import lazy_re
 from grit.format.policy_templates.writers import xml_formatted_writer
@@ -65,11 +66,13 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       parent: The DOM node to which the text will be added.
       text: The string to be added.
     '''
+    # A simple regexp to search for URLs. It is enough for now.
+    url_matcher = lazy_re.compile('(http://[^\\s]*[^\\s\\.])')
+
     # Iterate through all the URLs and replace them with links.
-    out = []
     while True:
       # Look for the first URL.
-      res = self._url_matcher.search(text)
+      res = url_matcher.search(text)
       if not res:
         break
       # Calculate positions of the substring of the URL.
@@ -84,6 +87,20 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       text = text[end:]
     self.AddText(parent, text)
 
+  def _AddParagraphs(self, parent, text):
+    '''Break description into paragraphs and replace URLs with links.
+
+    Args:
+      parent: The DOM node to which the text will be added.
+      text: The string to be added.
+    '''
+    # Split text into list of paragraphs.
+    entries = text.split('\n\n')
+    for entry in entries:
+      # Create a new paragraph node.
+      paragraph = self.AddElement(parent, 'p')
+      # Insert text to the paragraph with processing the URLs.
+      self._AddTextWithLinks(paragraph, entry)
 
   def _AddStyledElement(self, parent, name, style_ids, attrs=None, text=None):
     '''Adds an XML element to a parent, with CSS style-sheets included.
@@ -113,10 +130,10 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       parent: The DOM node for which the feature list will be added.
       policy: The data structure of a policy.
     '''
-    # Replace URLs with links in the description.
-    self._AddTextWithLinks(parent, policy['desc'])
+    # Add description by paragraphs (URLs will be substituted by links).
+    self._AddParagraphs(parent, policy['desc'])
     # Add list of enum items.
-    if policy['type'] in ('string-enum', 'int-enum'):
+    if policy['type'] in ('string-enum', 'int-enum', 'string-enum-list'):
       ul = self.AddElement(parent, 'ul')
       for item in policy['items']:
         if policy['type'] == 'int-enum':
@@ -179,7 +196,10 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     win = self._AddStyledElement(parent, 'dd', ['.monospace', '.pre'])
     win_text = []
     cnt = 1
-    key_name = self.config['win_reg_mandatory_key_name']
+    if self.CanBeRecommended(policy) and not self.CanBeMandatory(policy):
+      key_name = self.config['win_reg_recommended_key_name']
+    else:
+      key_name = self.config['win_reg_mandatory_key_name']
     for item in example_value:
       win_text.append(
           '%s\\%s\\%d = "%s"' %
@@ -187,21 +207,21 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       cnt = cnt + 1
     self.AddText(win, '\n'.join(win_text))
 
-  def _AddListExampleLinux(self, parent, policy):
-    '''Adds an example value for Linux of a 'list' policy to a DOM node.
+  def _AddListExampleAndroidLinux(self, parent, policy):
+    '''Adds an example value for Android/Linux of a 'list' policy to a DOM node.
 
     Args:
       parent: The DOM node for which the example will be added.
-      policy: A policy of type 'list', for which the Linux example value
+      policy: A policy of type 'list', for which the Android/Linux example value
         is generated.
     '''
     example_value = policy['example_value']
-    self.AddElement(parent, 'dt', {}, 'Linux:')
-    linux = self._AddStyledElement(parent, 'dd', ['.monospace'])
-    linux_text = []
+    self.AddElement(parent, 'dt', {}, 'Android/Linux:')
+    element = self._AddStyledElement(parent, 'dd', ['.monospace'])
+    text = []
     for item in example_value:
-      linux_text.append('"%s"' % item)
-    self.AddText(linux, '[%s]' % ', '.join(linux_text))
+      text.append('"%s"' % item)
+    self.AddText(element, '[%s]' % ', '.join(text))
 
   def _AddListExample(self, parent, policy):
     '''Adds the example value of a 'list' policy to a DOM node. Example output:
@@ -211,7 +231,7 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
         Software\Policies\Chromium\DisabledPlugins\0 = "Java"
         Software\Policies\Chromium\DisabledPlugins\1 = "Shockwave Flash"
       </dd>
-      <dt>Linux:</dt>
+      <dt>Android/Linux:</dt>
       <dd>["Java", "Shockwave Flash"]</dd>
       <dt>Mac:</dt>
       <dd>
@@ -227,45 +247,40 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       policy: The data structure of a policy.
     '''
     examples = self._AddStyledElement(parent, 'dl', ['dd dl'])
-    self._AddListExampleWindows(examples, policy)
-    self._AddListExampleLinux(examples, policy)
-    self._AddListExampleMac(examples, policy)
+    if self.IsPolicySupportedOnPlatform(policy, 'win'):
+      self._AddListExampleWindows(examples, policy)
+    if (self.IsPolicySupportedOnPlatform(policy, 'android') or
+        self.IsPolicySupportedOnPlatform(policy, 'linux')):
+      self._AddListExampleAndroidLinux(examples, policy)
+    if self.IsPolicySupportedOnPlatform(policy, 'mac'):
+      self._AddListExampleMac(examples, policy)
 
-  def _PythonDictionaryToMacDictionary(self, dictionary, indent=''):
-    '''Converts a python dictionary to an equivalent XML plist.
+  def _PythonObjectToPlist(self, obj, indent=''):
+    '''Converts a python object to an equivalent XML plist.
 
-    Returns a list of lines, with one dictionary entry per line.'''
-    result = [indent + '<dict>']
-    indent += '  '
-    for k in sorted(dictionary.keys()):
-      v = dictionary[k]
-      result.append('%s<key>%s</key>' % (indent, k))
-      value_type = type(v)
-      if value_type == bool:
-        result.append('%s<%s/>' % (indent, 'true' if v else 'false'))
-      elif value_type == int:
-        result.append('%s<integer>%s</integer>' % (indent, v))
-      elif value_type == str:
-        result.append('%s<string>%s</string>' % (indent, v))
-      elif value_type == dict:
-        result += self._PythonDictionaryToMacDictionary(v, indent)
-      elif value_type == list:
-        array = []
-        if len(v) != 0:
-          if type(v[0]) == str:
-            array = ['%s  <string>%s</string>' % (indent, x) for x in v]
-          elif type(v[0]) == dict:
-            for x in v:
-              array += self._PythonDictionaryToMacDictionary(x, indent + '  ')
-          else:
-            raise Exception('Must be list of string or dict.')
-        result.append('%s<array>' % indent)
-        result += array
-        result.append('%s</array>' % indent)
-      else:
-        raise Exception('Invalid example value type %s' % value_type)
-    result.append(indent[2:] + '</dict>')
-    return result
+    Returns a list of lines.'''
+    obj_type = type(obj)
+    if obj_type == bool:
+      return [ '%s<%s/>' % (indent, 'true' if obj else 'false') ]
+    elif obj_type == int:
+      return [ '%s<integer>%s</integer>' % (indent, obj) ]
+    elif obj_type == str:
+      return [ '%s<string>%s</string>' % (indent, obj) ]
+    elif obj_type == list:
+      result = [ '%s<array>' % indent ]
+      for item in obj:
+        result += self._PythonObjectToPlist(item, indent + '  ')
+      result.append('%s</array>' % indent)
+      return result
+    elif obj_type == dict:
+      result = [ '%s<dict>' % indent ]
+      for key in sorted(obj.keys()):
+        result.append('%s<key>%s</key>' % (indent + '  ', key))
+        result += self._PythonObjectToPlist(obj[key], indent + '  ')
+      result.append('%s</dict>' % indent)
+      return result
+    else:
+      raise Exception('Invalid object to convert: %s' % obj)
 
   def _AddDictionaryExampleMac(self, parent, policy):
     '''Adds an example value for Mac of a 'dict' policy to a DOM node.
@@ -279,7 +294,7 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     self.AddElement(parent, 'dt', {}, 'Mac:')
     mac = self._AddStyledElement(parent, 'dd', ['.monospace', '.pre'])
     mac_text = ['<key>%s</key>' % (policy['name'])]
-    mac_text += self._PythonDictionaryToMacDictionary(example_value)
+    mac_text += self._PythonObjectToPlist(example_value)
     self.AddText(mac, '\n'.join(mac_text))
 
   def _AddDictionaryExampleWindows(self, parent, policy):
@@ -292,22 +307,25 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     '''
     self.AddElement(parent, 'dt', {}, 'Windows:')
     win = self._AddStyledElement(parent, 'dd', ['.monospace', '.pre'])
-    key_name = self.config['win_reg_mandatory_key_name']
-    example = str(policy['example_value'])
-    self.AddText(win, '%s\\%s = "%s"' % (key_name, policy['name'], example))
+    if self.CanBeRecommended(policy) and not self.CanBeMandatory(policy):
+      key_name = self.config['win_reg_recommended_key_name']
+    else:
+      key_name = self.config['win_reg_mandatory_key_name']
+    example = json.dumps(policy['example_value'])
+    self.AddText(win, '%s\\%s = %s' % (key_name, policy['name'], example))
 
-  def _AddDictionaryExampleLinux(self, parent, policy):
-    '''Adds an example value for Linux of a 'dict' policy to a DOM node.
+  def _AddDictionaryExampleAndroidLinux(self, parent, policy):
+    '''Adds an example value for Android/Linux of a 'dict' policy to a DOM node.
 
     Args:
       parent: The DOM node for which the example will be added.
-      policy: A policy of type 'dict', for which the Linux example value
+      policy: A policy of type 'dict', for which the Android/Linux example value
         is generated.
     '''
-    self.AddElement(parent, 'dt', {}, 'Linux:')
-    linux = self._AddStyledElement(parent, 'dd', ['.monospace'])
-    example = str(policy['example_value'])
-    self.AddText(linux, '%s: %s' % (policy['name'], example))
+    self.AddElement(parent, 'dt', {}, 'Android/Linux:')
+    element = self._AddStyledElement(parent, 'dd', ['.monospace'])
+    example = json.dumps(policy['example_value'])
+    self.AddText(element, '%s: %s' % (policy['name'], example))
 
   def _AddDictionaryExample(self, parent, policy):
     '''Adds the example value of a 'dict' policy to a DOM node. Example output:
@@ -316,7 +334,7 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       <dd>
         Software\Policies\Chromium\ProxySettings = "{ 'ProxyMode': 'direct' }"
       </dd>
-      <dt>Linux:</dt>
+      <dt>Android/Linux:</dt>
       <dd>"ProxySettings": {
         "ProxyMode": "direct"
       }
@@ -336,16 +354,20 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       policy: The data structure of a policy.
     '''
     examples = self._AddStyledElement(parent, 'dl', ['dd dl'])
-    self._AddDictionaryExampleWindows(examples, policy)
-    self._AddDictionaryExampleLinux(examples, policy)
-    self._AddDictionaryExampleMac(examples, policy)
+    if self.IsPolicySupportedOnPlatform(policy, 'win'):
+      self._AddDictionaryExampleWindows(examples, policy)
+    if (self.IsPolicySupportedOnPlatform(policy, 'android') or
+        self.IsPolicySupportedOnPlatform(policy, 'linux')):
+      self._AddDictionaryExampleAndroidLinux(examples, policy)
+    if self.IsPolicySupportedOnPlatform(policy, 'mac'):
+      self._AddDictionaryExampleMac(examples, policy)
 
   def _AddExample(self, parent, policy):
     '''Adds the HTML DOM representation of the example value of a policy to
     a DOM node. It is simple text for boolean policies, like
-    '0x00000001 (Windows), true (Linux), <true /> (Mac)' in case of boolean
-    policies, but it may also contain other HTML elements. (See method
-    _AddListExample.)
+    '0x00000001 (Windows), true (Linux), true (Android), <true /> (Mac)'
+    in case of boolean policies, but it may also contain other HTML elements.
+    (See method _AddListExample.)
 
     Args:
       parent: The DOM node for which the example will be added.
@@ -358,23 +380,36 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     example_value = policy['example_value']
     policy_type = policy['type']
     if policy_type == 'main':
-      if example_value == True:
-        self.AddText(
-            parent, '0x00000001 (Windows), true (Linux), <true /> (Mac)')
-      elif example_value == False:
-        self.AddText(
-            parent, '0x00000000 (Windows), false (Linux), <false /> (Mac)')
-      else:
-        raise Exception('Expected boolean value.')
+      pieces = []
+      if self.IsPolicySupportedOnPlatform(policy, 'win'):
+        value = '0x00000001' if example_value else '0x00000000'
+        pieces.append(value + ' (Windows)')
+      if self.IsPolicySupportedOnPlatform(policy, 'linux'):
+        value = 'true' if example_value else 'false'
+        pieces.append(value + ' (Linux)')
+      if self.IsPolicySupportedOnPlatform(policy, 'android'):
+        value = 'true' if example_value else 'false'
+        pieces.append(value + ' (Android)')
+      if self.IsPolicySupportedOnPlatform(policy, 'mac'):
+        value = '<true />' if example_value else '<false />'
+        pieces.append(value + ' (Mac)')
+      self.AddText(parent, ', '.join(pieces))
     elif policy_type == 'string':
       self.AddText(parent, '"%s"' % example_value)
     elif policy_type in ('int', 'int-enum'):
-      self.AddText(
-          parent,
-          '0x%08x (Windows), %d (Linux/Mac)' % (example_value, example_value))
+      pieces = []
+      if self.IsPolicySupportedOnPlatform(policy, 'win'):
+        pieces.append('0x%08x (Windows)' % example_value)
+      if self.IsPolicySupportedOnPlatform(policy, 'linux'):
+        pieces.append('%d (Linux)' % example_value)
+      if self.IsPolicySupportedOnPlatform(policy, 'android'):
+        pieces.append('%d (Android)' % example_value)
+      if self.IsPolicySupportedOnPlatform(policy, 'mac'):
+        pieces.append('%d (Mac)' % example_value)
+      self.AddText(parent, ', '.join(pieces))
     elif policy_type == 'string-enum':
       self.AddText(parent, '"%s"' % (example_value))
-    elif policy_type == 'list':
+    elif policy_type in ('list', 'string-enum-list'):
       self._AddListExample(parent, policy)
     elif policy_type == 'dict':
       self._AddDictionaryExample(parent, policy)
@@ -445,28 +480,66 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     '''
 
     dl = self.AddElement(parent, 'dl')
-    self._AddPolicyAttribute(
-        dl,
-        'data_type',
-        self._TYPE_MAP[policy['type']])
-    self._AddPolicyAttribute(
-        dl,
-        'win_reg_loc',
-        self.config['win_reg_mandatory_key_name'] + '\\' + policy['name'],
-        ['.monospace'])
-    self._AddPolicyAttribute(
-        dl,
-        'mac_linux_pref_name',
-        policy['name'],
-        ['.monospace'])
+    data_type = [self._TYPE_MAP[policy['type']]]
+    qualified_types = []
+    is_complex_policy = False
+    if (self.IsPolicySupportedOnPlatform(policy, 'android') and
+        self._RESTRICTION_TYPE_MAP.get(policy['type'], None)):
+      qualified_types.append('Android:%s' %
+                            self._RESTRICTION_TYPE_MAP[policy['type']])
+      if policy['type'] in ('dict', 'list'):
+        is_complex_policy = True
+    if (self.IsPolicySupportedOnPlatform(policy, 'win') and
+        self._REG_TYPE_MAP.get(policy['type'], None)):
+      qualified_types.append('Windows:%s' % self._REG_TYPE_MAP[policy['type']])
+      if policy['type'] == 'dict':
+        is_complex_policy = True
+    if qualified_types:
+      data_type.append('[%s]' % ', '.join(qualified_types))
+      if is_complex_policy:
+        data_type.append('(%s)' %
+            self._GetLocalizedMessage('complex_policies_on_windows'))
+    self._AddPolicyAttribute(dl, 'data_type', ' '.join(data_type))
+    if policy['type'] != 'external':
+      # All types except 'external' can be set through platform policy.
+      if self.IsPolicySupportedOnPlatform(policy, 'win'):
+        if self.CanBeRecommended(policy) and not self.CanBeMandatory(policy):
+          key_name = self.config['win_reg_recommended_key_name']
+        else:
+          key_name = self.config['win_reg_mandatory_key_name']
+        self._AddPolicyAttribute(
+            dl,
+            'win_reg_loc',
+            key_name + '\\' + policy['name'],
+            ['.monospace'])
+      if (self.IsPolicySupportedOnPlatform(policy, 'linux') or
+          self.IsPolicySupportedOnPlatform(policy, 'mac')):
+        self._AddPolicyAttribute(
+            dl,
+            'mac_linux_pref_name',
+            policy['name'],
+            ['.monospace'])
+      if self.IsPolicySupportedOnPlatform(policy, 'android'):
+        self._AddPolicyAttribute(
+            dl,
+            'android_restriction_name',
+            policy['name'],
+            ['.monospace'])
     dd = self._AddPolicyAttribute(dl, 'supported_on')
     self._AddSupportedOnList(dd, policy['supported_on'])
     dd = self._AddPolicyAttribute(dl, 'supported_features')
     self._AddFeatures(dd, policy)
     dd = self._AddPolicyAttribute(dl, 'description')
     self._AddDescription(dd, policy)
-    dd = self._AddPolicyAttribute(dl, 'example_value')
-    self._AddExample(dd, policy)
+    if (self.IsPolicySupportedOnPlatform(policy, 'win') or
+        self.IsPolicySupportedOnPlatform(policy, 'linux') or
+        self.IsPolicySupportedOnPlatform(policy, 'android') or
+        self.IsPolicySupportedOnPlatform(policy, 'mac')):
+      # Don't add an example for ChromeOS-only policies.
+      if policy['type'] != 'external':
+        # All types except 'external' can be set through platform policy.
+        dd = self._AddPolicyAttribute(dl, 'example_value')
+        self._AddExample(dd, policy)
 
   def _AddPolicyNote(self, parent, policy):
     '''If a policy has an additional web page assigned with it, then add
@@ -480,7 +553,7 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
     problem_href = policy['problem_href']
     div = self._AddStyledElement(parent, 'div', ['div.note'])
     note = self._GetLocalizedMessage('note').replace('$6', problem_href)
-    self._AddTextWithLinks(div, note)
+    self._AddParagraphs(div, note)
 
   def _AddPolicyRow(self, parent, policy):
     '''Adds a row for the policy in the summary table.
@@ -562,10 +635,14 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
 
   def BeginTemplate(self):
     # Add a <div> for the summary section.
+    if self._GetChromiumVersionString() is not None:
+      self.AddComment(self._main_div, self.config['build'] + \
+          ' version: ' + self._GetChromiumVersionString())
+
     summary_div = self.AddElement(self._main_div, 'div')
     self.AddElement(summary_div, 'a', {'name': 'top'})
     self.AddElement(summary_div, 'br')
-    self._AddTextWithLinks(
+    self._AddParagraphs(
         summary_div,
         self._GetLocalizedMessage('intro'))
     self.AddElement(summary_div, 'br')
@@ -600,6 +677,8 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       'mac': 'Mac',
       'linux': 'Linux',
       'chrome_os': self.config['os_name'],
+      'android': 'Android',
+      'ios': 'iOS',
     }
     # Human-readable names of supported products.
     self._PRODUCT_MAP = {
@@ -615,13 +694,30 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
         self._FEATURE_MAP[message[12:]] = self.messages[message]['text']
     # Human-readable names of types.
     self._TYPE_MAP = {
-      'string': 'String (REG_SZ)',
-      'int': 'Integer (REG_DWORD)',
-      'main': 'Boolean (REG_DWORD)',
-      'int-enum': 'Integer (REG_DWORD)',
-      'string-enum': 'String (REG_SZ)',
+      'string': 'String',
+      'int': 'Integer',
+      'main': 'Boolean',
+      'int-enum': 'Integer',
+      'string-enum': 'String',
       'list': 'List of strings',
-      'dict': 'Dictionary (REG_SZ, encoded as a JSON string)',
+      'string-enum-list': 'List of strings',
+      'dict': 'Dictionary',
+      'external': 'External data reference',
+    }
+    self._REG_TYPE_MAP = {
+      'string': 'REG_SZ',
+      'int': 'REG_DWORD',
+      'main': 'REG_DWORD',
+      'int-enum': 'REG_DWORD',
+      'string-enum': 'REG_SZ',
+      'dict': 'REG_SZ',
+    }
+    self._RESTRICTION_TYPE_MAP = {
+      'int-enum': 'choice',
+      'string-enum': 'choice',
+      'list': 'string',
+      'string-enum-list': 'multi-select',
+      'dict': 'string',
     }
     # The CSS style-sheet used for the document. It will be used in Google
     # Sites, which strips class attributes from HTML tags. To work around this,
@@ -644,8 +740,6 @@ class DocWriter(xml_formatted_writer.XMLFormattedWriter):
       'ul': 'padding-left: 0px; margin-left: 0px;'
     }
 
-    # A simple regexp to search for URLs. It is enough for now.
-    self._url_matcher = lazy_re.compile('(http://[^\\s]*[^\\s\\.])')
 
   def GetTemplateText(self):
     # Return the text representation of the main <div> tag.

@@ -37,6 +37,8 @@ class HtmlInlineUnittest(unittest.TestCase):
           <include src="test.html">
           <include
               src="really-long-long-long-long-long-test-file-omg-so-long.html">
+          <iron-icon src="[[icon]]"></iron-icon><!-- Should be ignored. -->
+          <iron-icon src="{{src}}"></iron-icon><!-- Also ignored. -->
         </body>
       </html>
       ''',
@@ -76,6 +78,28 @@ class HtmlInlineUnittest(unittest.TestCase):
     resources = html_inline.GetResourceFilenames(tmp_dir.GetPath('index.html'))
     resources.add(tmp_dir.GetPath('index.html'))
     self.failUnlessEqual(resources, source_resources)
+    tmp_dir.CleanUp()
+
+  def testUnmatchedEndIfBlock(self):
+    '''Tests that an unmatched </if> raises an exception.'''
+
+    files = {
+      'index.html': '''
+      <!DOCTYPE HTML>
+      <html>
+        <if expr="lang == 'fr'">
+          bonjour
+        </if>
+        </if>
+      </html>
+      ''',
+    }
+
+    tmp_dir = util.TempDir(files)
+
+    with self.assertRaises(Exception) as cm:
+      html_inline.GetResourceFilenames(tmp_dir.GetPath('index.html'))
+    self.failUnlessEqual(cm.exception.message, 'Unmatched </if>')
     tmp_dir.CleanUp()
 
   def testCompressedJavaScript(self):
@@ -202,6 +226,127 @@ class HtmlInlineUnittest(unittest.TestCase):
     self.failUnlessEqual(expected_inlined,
                          util.FixLineEnd(result.inlined_data, '\n'))
 
+  def testFilenameVariableExpansion(self):
+    '''Tests that variables are expanded in filenames before inlining.'''
+
+    files = {
+      'index.html': '''
+      <html>
+      <head>
+      <link rel="stylesheet" href="style[WHICH].css">
+      <script src="script[WHICH].js"></script>
+      </head>
+      <include src="tmpl[WHICH].html">
+      <img src="img[WHICH].png">
+      </html>
+      ''',
+      'style1.css': '''h1 {}''',
+      'tmpl1.html': '''<h1></h1>''',
+      'script1.js': '''console.log('hello');''',
+      'img1.png': '''abc''',
+    }
+
+    expected_inlined = '''
+      <html>
+      <head>
+      <style>h1 {}</style>
+      <script>console.log('hello');</script>
+      </head>
+      <h1></h1>
+      <img src="data:image/png;base64,YWJj">
+      </html>
+      '''
+
+    source_resources = set()
+    tmp_dir = util.TempDir(files)
+    for filename in files:
+      source_resources.add(tmp_dir.GetPath(filename))
+
+    def replacer(var, repl):
+      return lambda filename: filename.replace('[%s]' % var, repl)
+
+    # Test normal inlining.
+    result = html_inline.DoInline(
+        tmp_dir.GetPath('index.html'),
+        None,
+        filename_expansion_function=replacer('WHICH', '1'))
+    resources = result.inlined_files
+    resources.add(tmp_dir.GetPath('index.html'))
+    self.failUnlessEqual(resources, source_resources)
+    self.failUnlessEqual(expected_inlined,
+                         util.FixLineEnd(result.inlined_data, '\n'))
+
+    # Test names-only inlining.
+    result = html_inline.DoInline(
+        tmp_dir.GetPath('index.html'),
+        None,
+        names_only=True,
+        filename_expansion_function=replacer('WHICH', '1'))
+    resources = result.inlined_files
+    resources.add(tmp_dir.GetPath('index.html'))
+    self.failUnlessEqual(resources, source_resources)
+
+  def testWithCloseTags(self):
+    '''Tests that close tags are removed.'''
+
+    files = {
+      'index.html': '''
+      <html>
+      <head>
+      <link rel="stylesheet" href="style1.css"></link>
+      <link rel="stylesheet" href="style2.css">
+      </link>
+      <link rel="stylesheet" href="style2.css"
+      >
+      </link>
+      <script src="script1.js"></script>
+      </head>
+      <include src="tmpl1.html"></include>
+      <include src="tmpl2.html">
+      </include>
+      <include src="tmpl2.html"
+      >
+      </include>
+      <img src="img1.png">
+      </html>
+      ''',
+      'style1.css': '''h1 {}''',
+      'style2.css': '''h2 {}''',
+      'tmpl1.html': '''<h1></h1>''',
+      'tmpl2.html': '''<h2></h2>''',
+      'script1.js': '''console.log('hello');''',
+      'img1.png': '''abc''',
+    }
+
+    expected_inlined = '''
+      <html>
+      <head>
+      <style>h1 {}</style>
+      <style>h2 {}</style>
+      <style>h2 {}</style>
+      <script>console.log('hello');</script>
+      </head>
+      <h1></h1>
+      <h2></h2>
+      <h2></h2>
+      <img src="data:image/png;base64,YWJj">
+      </html>
+      '''
+
+    source_resources = set()
+    tmp_dir = util.TempDir(files)
+    for filename in files:
+      source_resources.add(tmp_dir.GetPath(filename))
+
+    # Test normal inlining.
+    result = html_inline.DoInline(
+        tmp_dir.GetPath('index.html'),
+        None)
+    resources = result.inlined_files
+    resources.add(tmp_dir.GetPath('index.html'))
+    self.failUnlessEqual(resources, source_resources)
+    self.failUnlessEqual(expected_inlined,
+                         util.FixLineEnd(result.inlined_data, '\n'))
 
 if __name__ == '__main__':
   unittest.main()

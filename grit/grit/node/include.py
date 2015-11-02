@@ -68,7 +68,11 @@ class IncludeNode(base.Node):
     """Returns the file for the specified language.  This allows us to return
     different files for different language variants of the include file.
     """
-    return self.ToRealPath(self.GetInputPath())
+    input_path = self.GetInputPath()
+    if input_path is None:
+      return None
+
+    return self.ToRealPath(input_path)
 
   def GetDataPackPair(self, lang, encoding):
     """Returns a (id, string) pair that represents the resource id and raw
@@ -112,6 +116,16 @@ class IncludeNode(base.Node):
     return grit.format.html_inline.GetResourceFilenames(
          self.ToRealPath(self.GetInputPath()),
          allow_external_script=allow_external_script)
+
+  def IsResourceMapSource(self):
+    return True
+
+  def GeneratesResourceMapEntry(self, output_all_resource_defines,
+                                is_active_descendant):
+    # includes always generate resource entries.
+    if output_all_resource_defines:
+      return True
+    return is_active_descendant
 
   @staticmethod
   def Construct(parent, name, type, file, translateable=True,

@@ -276,7 +276,6 @@ Other options:
         ids_already_done[id] = 1
 
         message = node.UberClique().BestClique(id).GetMessage()
-        #message['name'] = node.attrs['name']
         messages += [message]
 
     # Ensure a stable order of messages, to help regression testing.

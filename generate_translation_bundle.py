@@ -132,11 +132,11 @@ def main(args):
   options = _ParseOptions()  
   
   # 输入的 old grd 路径
-  oldGrdPath = os.path.abspath( options.old_grd )
+  oldGrdPath =  options.old_grd 
   # 输入的 new grd 路径
-  newGrdPath = os.path.abspath( options.new_grd )
+  newGrdPath = options.new_grd 
   # 输出的目录
-  outputDir = os.path.abspath( os.path.dirname(options.output) )
+  outputDir = os.path.dirname(options.output)
   # 输出的文件名，不包含扩展名
   outputFileName = os.path.splitext(os.path.basename(options.output))[0]
   # old grd 生成的中间文件
@@ -148,26 +148,58 @@ def main(args):
   subprocess.call([
       'python', 
       "grit/grit.py",
-      "-i", oldGrdPath, 
-      "xmb",
-      "-D","_chromium", 
-      "-D", "toolkit_views", 
-      "-D", "remoting", 
-      "-D","enable_register_protocol_handler", 
-      outputOldGrdPath], 
+      '-i', oldGrdPath, 
+      'xmb', 
+      '-D', '_chromium', 
+      '-D', 'toolkit_views', 
+      '-D', 'use_aura', 
+      '-D', 'use_ash', 
+      '-D', 'enable_extensions', 
+      '-D', 'enable_plugins', 
+      '-D', 'enable_printing', 
+      '-D', 'enable_print_preview',
+      '-D', 'enable_themes', 
+      '-D', 'enable_app_list', 
+      '-D', 'enable_settings_app', 
+      '-D', 'enable_google_now', 
+      '-D', 'use_concatenated_impulse_responses', 
+      '-D', 'enable_webrtc', 
+      '-D', 'enable_task_manager', 
+      '-D', 'enable_notifications', 
+      '-D', 'enable_wifi_bootstrapping', 
+      '-D', 'enable_topchrome_md', 
+      '-D', 'enable_service_discovery',
+      outputOldGrdPath,
+      ], 
     shell=True)
       
   # 处理 new grd 文件
   subprocess.call([
       'python', 
       "grit/grit.py",
-      "-i", newGrdPath, 
-      "xmb",
-      "-D","_chromium", 
-      "-D", "toolkit_views", 
-      "-D", "remoting", 
-      "-D","enable_register_protocol_handler", 
-      outputNewGrdPath], 
+      '-i', newGrdPath,
+      'xmb',
+      '-D', '_chromium', 
+      '-D', 'toolkit_views', 
+      '-D', 'use_aura', 
+      '-D', 'use_ash', 
+      '-D', 'enable_extensions', 
+      '-D', 'enable_plugins', 
+      '-D', 'enable_printing', 
+      '-D', 'enable_print_preview',
+      '-D', 'enable_themes', 
+      '-D', 'enable_app_list', 
+      '-D', 'enable_settings_app', 
+      '-D', 'enable_google_now', 
+      '-D', 'use_concatenated_impulse_responses',  
+      '-D', 'enable_webrtc', 
+      '-D', 'enable_task_manager', 
+      '-D', 'enable_notifications', 
+      '-D', 'enable_wifi_bootstrapping', 
+      '-D', 'enable_topchrome_md', 
+      '-D', 'enable_service_discovery',
+      outputNewGrdPath,
+      ], 
     shell=True)
     
   # 生成 new xtb 文件
