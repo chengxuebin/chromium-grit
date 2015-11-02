@@ -188,18 +188,6 @@ are declared in build/common.gypi.
   </translations>
   <release seq="1" allow_pseudo="false">
     <messages fallback_to_english="true">
-      <!-- Bookmarks specific strings -->
-      <part file="bookmarks_strings.grdp" />
-
-      <!-- ChromeOS-specific strings -->
-      <if expr="chromeos">
-        <part file="chromeos_strings.grdp" />
-      </if>
-
-      <!-- Media Router specific strings -->
-      <if expr="enable_media_router">
-        <part file="media_router_strings.grdp" />
-      </if>
 
       <!-- TODO add all of your "string table" messages here.  Remember to
       change nontranslateable parts of the messages into placeholders (using the
