@@ -189,6 +189,7 @@ are declared in build/common.gypi.
   <release seq="1" allow_pseudo="false">
     <messages fallback_to_english="true">
 
+
       <!-- TODO add all of your "string table" messages here.  Remember to
       change nontranslateable parts of the messages into placeholders (using the
       <ph> element).  You can also use the 'grit add' tool to help you identify
@@ -9313,7 +9314,7 @@ I don't think this site should be blocked!
         has temporarily stopped allowing requests by extensions to this URL.
         <ph name="LINE_BREAK">&lt;br /&gt;&lt;br /&gt;<ex>&lt;br /&gt;&lt;br /&gt;</ex></ph>
         If you think this behavior is undesirable, for example, you are debugging your own website, please
-        visit <ph name="URL_FOR_MORE_INFO">&lt;strong&gt;http://dev.win-trust.cn/throttling&lt;/strong&gt;<ex>http://dev.win-trust.cn/throttling</ex></ph>,
+        visit <ph name="URL_FOR_MORE_INFO">&lt;strong&gt;http://dev.suloong.org/throttling&lt;/strong&gt;<ex>http://dev.suloong.org/throttling</ex></ph>,
         where you can find more information including how to disable the feature.
       </message>
       <message name="IDS_ERRORPAGES_DETAILS_TEMPORARILY_THROTTLED" desc="The error message displayed when we temporarily stop sending requests to a server in order to avoid DDoS.">
