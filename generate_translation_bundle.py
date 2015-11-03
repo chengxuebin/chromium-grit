@@ -145,6 +145,13 @@ def main(args):
   outputNewGrdPath = os.path.join(outputDir,outputFileName+'.new.tmp')
   
   # 处理 old grd 文件
+  # 通过 grit.py 调用子工具，常用的有：xmb，build。详情见 grit_runner.py
+  # xmb 的参数详情见 tool/xmb.py
+  # Other options:
+  # -D NAME[=VAL]     Specify a C-preprocessor-like define NAME with optional
+  #                  value VAL (defaults to 1) which will be used to control
+  #                  conditional inclusion of resources.
+  # -E NAME=VALUE     Set environment variable NAME to VALUE (within grit).
   subprocess.call([
       'python', 
       "grit/grit.py",
@@ -207,7 +214,7 @@ def main(args):
   
   # 保存到结果文件
   out_file = open(options.output, mode='w', encoding='utf-8')
-  out_file.write( '<?xml version="1.0" ?>\n<!DOCTYPE translationbundle>\n<translationbundle>\n' )
+  out_file.write( '<?xml version="1.0" ?>\n<!DOCTYPE translationbundle>\n<translationbundle lang="zh-CN">\n' )
   out_file.write(outputString)  
   out_file.write( '</translationbundle>' )  
   
