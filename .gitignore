@@ -55,5 +55,4 @@ v8.log
 /.externalToolBuilders/
 /.settings/
 
-/new/chromium_strings_zh-CN.xtb
-/new/generated_resources_zh-CN.xtb
+/resources
